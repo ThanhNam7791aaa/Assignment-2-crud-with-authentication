@@ -1,73 +1,54 @@
 # 🚀 TaskFlow — Task & Team Management Web Application
 
-> **Assignment 1:** Project Setup, Prisma ORM, Full-stack CRUD & Vercel Deployment  
-> **Course:** Web Application Development / Software Engineering
+> **Assignment 2:** Task & Team Management App: CRUD API with Authentication  
+> **Course:** Web Application Development / Software Engineering  
+> **Live Website (Vercel):** [https://assignment-1-project-setup-and-deployment.vercel.app](https://assignment-1-project-setup-and-deployment.vercel.app) *(or your Vercel deployment URL)*  
+> **GitHub Repository:** [https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment](https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment)
+
+---
+
+## 🎓 Submission Information (Official Format)
+
+```text
+Student ID: [Your Student ID, e.g., QE123456]
+Full Name: [Your Full Name]
+GitHub Repository URL: https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment
+Deployed Website URL (Vercel): [Your Vercel URL]
+Separate Backend URL (NestJS on Render) — write N/A if not used: N/A
+Test Account Email: test@taskflow.com
+Test Account Password: Password123!
+This test account is already email-verified / ready to log in immediately, with no confirmation link needed (Yes / No): Yes
+Self-registration works, so a grader can create their own account (Yes / No): Yes
+```
 
 ---
 
 ## 📌 Project Overview
 
-**TaskFlow** is a modern, responsive web application for managing tasks and team collaboration. This project lays down the technical architecture, database modeling with Prisma, API Route Handlers, and automated CI/CD pipeline for the upcoming features in Assignments 2 & 3.
+**TaskFlow** is an enterprise-grade full-stack Task & Team Management application built with **Next.js 16 (App Router)**, **Prisma ORM**, and **PostgreSQL (Supabase)**.
 
-- **Live Deployment:** [TaskFlow on Vercel](https://assignment-1-project-setup-and-deployment.vercel.app) *(Update with your Vercel URL)*
-- **GitHub Repository:** [https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment](https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment)
+In **Assignment 2**, the platform is enhanced with:
+- **JWT & bcrypt Authentication:** Secure registration, login, session persistence via httpOnly cookies, and logout.
+- **Team Workspace Management:** Multi-team membership, role assignment (`OWNER` vs `MEMBER`), and member invitations by email.
+- **Task Management with Role-Based Access Control (RBAC):** Task creation within teams, assignee delegation, status/priority updates, and strict delete authorization rules.
+- **Interactive Kanban Board View:** Visual status columns (`To Do`, `In Progress`, `Done`) with instant status transitions.
+- **Real-Time Task Filtering & Search:** Filter tasks by status, priority, or assignee, plus instant search.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend & Framework:** Next.js 16 (App Router, React 19, TypeScript)
-- **Styling:** Tailwind CSS v4 (Responsive design, dark/light theme accents)
+- **Frontend & Route Handlers:** Next.js 16 (App Router, React 19, TypeScript)
+- **Styling:** Tailwind CSS v4 (Modern responsive layout with dark/light mode accents)
 - **Database:** PostgreSQL (Hosted on [Supabase](https://supabase.com))
-- **ORM:** Prisma 6 (Type-safe client, migrations)
-- **Code Quality:** ESLint & Prettier
-- **Continuous Integration (CI):** GitHub Actions (`lint-and-build` on push)
+- **ORM:** Prisma 6 (Schema modeling, migrations, client singleton)
+- **Authentication:** JWT (`jose`) with `httpOnly` secure cookies & password hashing with `bcryptjs`
+- **Continuous Integration:** GitHub Actions (`.github/workflows/ci.yml`)
 - **Hosting & Deployment:** Vercel
 
 ---
 
-## 🗂️ Folder Structure
-
-```text
-.
-├── .github/
-│   └── workflows/
-│       └── ci.yml             # GitHub Actions CI workflow
-├── app/
-│   ├── api/
-│   │   └── tasks/
-│   │       ├── route.ts       # GET /api/tasks & POST /api/tasks
-│   │       └── [id]/
-│   │           └── route.ts   # PUT /api/tasks/:id & DELETE /api/tasks/:id
-│   ├── teams/
-│   │   └── page.tsx           # "Coming Soon" placeholder for Assignment 2
-│   ├── favicon.ico
-│   ├── globals.css            # Tailwind CSS styling setup
-│   ├── layout.tsx             # Root layout with Header and Footer
-│   └── page.tsx               # Homepage rendering TaskDashboard
-├── components/
-│   ├── EditTaskModal.tsx      # Modal dialog to edit existing tasks
-│   ├── Footer.tsx             # Shared responsive footer
-│   ├── Navbar.tsx             # Shared navigation bar with mobile support
-│   ├── TaskCard.tsx           # Individual task card with status badges & actions
-│   ├── TaskDashboard.tsx      # Client dashboard with state management & stats
-│   └── TaskForm.tsx           # Task creation form with client validation
-├── lib/
-│   └── prisma.ts              # PrismaClient singleton instance
-├── prisma/
-│   └── schema.prisma          # Database schema (User, Team, TeamMember, Task)
-├── .env.example               # Template for required environment variables
-├── .gitignore
-├── .prettierrc
-├── package.json
-└── tsconfig.json
-```
-
----
-
 ## 🗄️ Database Design & ERD (Entity Relationship Diagram)
-
-The database schema is modeled using Prisma ORM with PostgreSQL. It includes 4 core entities:
 
 ```mermaid
 erDiagram
@@ -104,78 +85,58 @@ erDiagram
         DateTime dueDate
         String teamId FK
         String assigneeId FK
+        String creatorId FK
         DateTime createdAt
     }
 
     users ||--o{ teams : "owns (TeamOwner)"
     users ||--o{ team_members : "belongs to"
     users ||--o{ tasks : "assigned to (TaskAssignee)"
-    teams ||--o{ team_members : "has members"
-    teams ||--o{ tasks : "contains"
+    users ||--o{ tasks : "created (TaskCreator)"
+    teams ||--o{ team_members : "contains members"
+    teams ||--o{ tasks : "owns tasks"
 ```
-
-### Model Descriptions
-1. **User:** Represents registered members with name, email, credentials, and timestamps.
-2. **Team:** Represents collaborative teams owned by a User.
-3. **TeamMember:** Join table linking Users and Teams with role-based permissions (`OWNER`, `ADMIN`, `MEMBER`).
-4. **Task:** Represents tasks with status (`TODO`, `IN_PROGRESS`, `DONE`), priority (`LOW`, `MEDIUM`, `HIGH`), due date, and optional relationships to `Team` and `User`.
 
 ---
 
-## 🔌 API Endpoints (Next.js Route Handlers)
+## 🔌 Complete RESTful API Endpoints
 
-| Method | Endpoint | Description | Request Body |
+### 1. Authentication (`/api/auth`)
+| Method | Endpoint | Description | Access |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/tasks` | List all tasks (ordered by createdAt DESC) | None |
-| `GET` | `/api/tasks?status=TODO` | Filter tasks by status | None |
-| `POST` | `/api/tasks` | Create a new task | `{ title, description?, status?, priority?, dueDate? }` |
-| `PUT` | `/api/tasks/:id` | Update an existing task | `{ title?, description?, status?, priority?, dueDate? }` |
-| `DELETE` | `/api/tasks/:id` | Delete a task by ID | None |
+| `POST` | `/api/auth/register` | Register a new user (`name`, `email`, `password`) | Public |
+| `POST` | `/api/auth/login` | Login and receive JWT httpOnly session cookie | Public |
+| `POST` | `/api/auth/logout` | Clear session cookie | Authenticated |
+| `GET` | `/api/auth/me` | Get current logged-in user profile | Authenticated |
 
----
+### 2. Team Management (`/api/teams`)
+| Method | Endpoint | Description | Access |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/teams` | List all teams the current user belongs to | Authenticated |
+| `POST` | `/api/teams` | Create a new team (creator becomes `OWNER`) | Authenticated |
+| `GET` | `/api/teams/:id` | Get team details, members, and tasks | Team Members |
+| `PUT` | `/api/teams/:id` | Update team name or description | Team Owner Only |
+| `DELETE` | `/api/teams/:id` | Permanently delete team and its tasks | Team Owner Only |
 
-## 🚀 Getting Started Locally
+### 3. Team Member Management (`/api/teams/:id/members`)
+| Method | Endpoint | Description | Access |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/teams/:id/members` | Add member to team by registered `email` | Team Owner Only |
+| `DELETE` | `/api/teams/:id/members/:userId` | Remove member from team (cannot remove owner) | Team Owner Only |
 
-### 1. Clone the repository
-```bash
-git clone https://github.com/ThanhNam7791aaa/Assignment-1-Project-setup-and-deployment.git
-cd Assignment-1-Project-setup-and-deployment
-```
-
-### 2. Install dependencies
-```bash
-npm install
-```
-
-### 3. Setup Environment Variables
-Create a `.env` file in the root folder based on `.env.example`:
-```env
-DATABASE_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true"
-DIRECT_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres"
-```
-
-### 4. Run database migrations
-```bash
-npx prisma migrate dev --name init
-```
-
-### 5. Launch Prisma Studio (Optional)
-Inspect your database records with a visual GUI:
-```bash
-npx prisma studio
-```
-
-### 6. Run the Development Server
-```bash
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) with your browser to view the application.
+### 4. Task Management (`/api/teams/:id/tasks` & `/api/tasks/:id`)
+| Method | Endpoint | Description | Access |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/teams/:id/tasks` | List tasks for team with status/priority/assignee filters | Team Members |
+| `POST` | `/api/teams/:id/tasks` | Create a new task within the team | Team Members |
+| `PUT` | `/api/tasks/:id` | Update task details, status, priority, or assignee | Team Members |
+| `DELETE` | `/api/tasks/:id` | Delete task | **Creator, Assignee, or Team Owner only** |
 
 ---
 
 ## 🌟 Bonus Features Implemented
-- ✅ **Client-side Form Validation:** Real-time feedback preventing empty or too-short task titles.
-- ✅ **Status Filter & Search:** Instantly filter tasks by `All`, `To Do`, `In Progress`, and `Done` or search by keyword.
-- ✅ **GitHub Actions CI:** Automated pipeline running `ESLint` and `Next.js Build` on every commit/PR.
-- ✅ **Entity Relationship Diagram (ERD):** Visualized Mermaid schema included in README.
-- ✅ **Tailwind CSS Design:** Modern responsive interface with statistics counters, badges, and smooth modal interactions.
+- ✅ **Kanban Board View:** Switch between visual Kanban columns (`To Do`, `In Progress`, `Done`) and Table list view.
+- ✅ **Filter & Search Tasks:** Filter by status, priority, or assignee, with instant title/description search.
+- ✅ **Role-Based Authorization (RBAC):** Strict checks on team settings, member removal, and task deletion.
+- ✅ **Pre-configured Grader Account:** 1-click test login credentials on the login screen.
+- ✅ **GitHub Actions CI Workflow:** Automated lint & build checks on every push.
