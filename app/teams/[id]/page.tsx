@@ -102,9 +102,11 @@ export default function TeamDetailPage({
         router.push("/login");
         return;
       }
+      if (res.status === 403) {
+        throw new Error("Access denied. You are not a member of this team.");
+      }
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to load team");
+        throw new Error("Failed to load team details");
       }
       const data = await res.json();
       setTeam(data.team);
@@ -113,7 +115,7 @@ export default function TeamDetailPage({
       setEditTeamName(data.team.name);
       setEditTeamDesc(data.team.description || "");
     } catch (err: any) {
-      setError(err.message || "Error loading team");
+      setError(err.message || "Failed to load team");
     } finally {
       setLoading(false);
     }
@@ -127,7 +129,7 @@ export default function TeamDetailPage({
         fetchTeam();
       }
     }
-  }, [id, user, authLoading]);
+  }, [user, authLoading, id]);
 
   // Handle Create Task
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -177,18 +179,16 @@ export default function TeamDetailPage({
   // Handle Update Task
   const handleUpdateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTask || !editingTask.title.trim()) return;
+    if (!editingTask) return;
 
     setTaskLoading(true);
-    setTaskError(null);
-
     try {
       const res = await fetch(`/api/tasks/${editingTask.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: editingTask.title.trim(),
-          description: editingTask.description?.trim() || null,
+          title: editingTask.title,
+          description: editingTask.description,
           status: editingTask.status,
           priority: editingTask.priority,
           dueDate: editingTask.dueDate ? new Date(editingTask.dueDate).toISOString() : null,
@@ -220,7 +220,6 @@ export default function TeamDetailPage({
   // Handle Quick Status Change (Kanban)
   const handleQuickStatusChange = async (taskId: string, newStatus: string) => {
     try {
-      // Optimistic update
       setTeam((prev) =>
         prev
           ? {
@@ -301,7 +300,12 @@ export default function TeamDetailPage({
       }
 
       setTeam((prev) =>
-        prev ? { ...prev, members: [...prev.members, data] } : prev
+        prev
+          ? {
+              ...prev,
+              members: [...prev.members, data],
+            }
+          : prev
       );
       setMemberEmail("");
       setIsAddMemberOpen(false);
@@ -314,13 +318,12 @@ export default function TeamDetailPage({
 
   // Handle Remove Member
   const handleRemoveMember = async (memberUserId: string, memberName: string) => {
-    if (!confirm(`Remove member "${memberName}" from this team?`)) return;
+    if (!confirm(`Are you sure you want to remove ${memberName} from this team?`)) return;
 
     try {
       const res = await fetch(`/api/teams/${id}/members/${memberUserId}`, {
         method: "DELETE",
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Failed to remove member");
@@ -331,6 +334,9 @@ export default function TeamDetailPage({
           ? {
               ...prev,
               members: prev.members.filter((m) => m.userId !== memberUserId),
+              tasks: prev.tasks.map((t) =>
+                t.assigneeId === memberUserId ? { ...t, assigneeId: null, assignee: null } : t
+              ),
             }
           : prev
       );
@@ -414,7 +420,7 @@ export default function TeamDetailPage({
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <span className="text-sm text-gray-500">Loading team workspace...</span>
+          <span className="text-sm font-medium text-slate-500">Loading team workspace...</span>
         </div>
       </div>
     );
@@ -423,11 +429,14 @@ export default function TeamDetailPage({
   if (error || !team) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Team Not Found</h2>
-        <p className="mt-2 text-sm text-gray-500">{error || "Could not find the requested team."}</p>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 text-2xl font-bold border border-rose-100">
+          ⚠️
+        </div>
+        <h2 className="mt-4 text-2xl font-bold text-slate-900">Team Not Found</h2>
+        <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto">{error || "Could not find the requested team."}</p>
         <Link
           href="/teams"
-          className="mt-6 inline-flex rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+          className="mt-6 inline-flex rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-500 transition"
         >
           ← Back to My Teams
         </Link>
@@ -437,27 +446,27 @@ export default function TeamDetailPage({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-      {/* Breadcrumb & Navigation */}
-      <div className="flex items-center gap-2 text-xs text-gray-500">
-        <Link href="/teams" className="hover:text-indigo-600">
+      {/* Breadcrumb Navigation */}
+      <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+        <Link href="/teams" className="hover:text-indigo-600 transition-colors">
           My Teams
         </Link>
         <span>/</span>
-        <span className="font-semibold text-gray-900 dark:text-white">{team.name}</span>
+        <span className="text-slate-900 font-bold">{team.name}</span>
       </div>
 
       {/* Team Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5 rounded-3xl border border-slate-200 bg-white p-7 shadow-xs">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
               {team.name}
             </h1>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
                 isOwner
-                  ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                  : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                  ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
+                  : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
               }`}
             >
               {isOwner ? "👑 Owner" : `👤 ${currentUserRole}`}
@@ -465,13 +474,15 @@ export default function TeamDetailPage({
           </div>
 
           {team.description && (
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-3xl">
               {team.description}
             </p>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-            <span>Owner: <strong className="text-gray-700 dark:text-gray-300">{team.owner.name}</strong></span>
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-500">
+            <span>
+              Owner: <strong className="text-slate-900">{team.owner.name}</strong>
+            </span>
             <span>•</span>
             <span>{team.members.length} Members</span>
             <span>•</span>
@@ -480,20 +491,20 @@ export default function TeamDetailPage({
         </div>
 
         {/* Team Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           {isOwner && (
             <>
               <button
                 type="button"
                 onClick={() => setIsEditTeamOpen(true)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 transition"
+                className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer"
               >
                 Edit Team
               </button>
               <button
                 type="button"
                 onClick={handleDeleteTeam}
-                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400 transition"
+                className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-600 hover:bg-rose-100 shadow-2xs transition cursor-pointer"
               >
                 Delete Team
               </button>
@@ -503,7 +514,7 @@ export default function TeamDetailPage({
           <button
             type="button"
             onClick={() => setIsCreateTaskOpen(true)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-500 transition"
+            className="rounded-xl bg-indigo-600 px-4.5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 transition cursor-pointer"
           >
             + Create Task
           </button>
@@ -511,15 +522,15 @@ export default function TeamDetailPage({
       </div>
 
       {/* Tabs navigation: Tasks vs Members */}
-      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
+      <div className="flex items-center justify-between border-b border-slate-200 pt-2">
         <div className="flex items-center space-x-6">
           <button
             type="button"
             onClick={() => setActiveTab("tasks")}
-            className={`pb-3 text-sm font-semibold transition border-b-2 ${
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
               activeTab === "tasks"
-                ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-                : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
             Tasks ({team.tasks.length})
@@ -527,10 +538,10 @@ export default function TeamDetailPage({
           <button
             type="button"
             onClick={() => setActiveTab("members")}
-            className={`pb-3 text-sm font-semibold transition border-b-2 ${
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
               activeTab === "members"
-                ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-                : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
             Team Members ({team.members.length})
@@ -538,14 +549,14 @@ export default function TeamDetailPage({
         </div>
 
         {activeTab === "tasks" && (
-          <div className="flex items-center gap-1 pb-2">
+          <div className="flex items-center gap-1.5 pb-2">
             <button
               type="button"
               onClick={() => setViewMode("kanban")}
-              className={`rounded-md p-1.5 text-xs font-medium ${
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
                 viewMode === "kanban"
-                  ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400 font-bold"
-                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                  ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs"
+                  : "text-slate-600 hover:bg-slate-100"
               }`}
               title="Kanban Board View"
             >
@@ -554,10 +565,10 @@ export default function TeamDetailPage({
             <button
               type="button"
               onClick={() => setViewMode("table")}
-              className={`rounded-md p-1.5 text-xs font-medium ${
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
                 viewMode === "table"
-                  ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400 font-bold"
-                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                  ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs"
+                  : "text-slate-600 hover:bg-slate-100"
               }`}
               title="Table / List View"
             >
@@ -570,14 +581,14 @@ export default function TeamDetailPage({
       {/* TAB 1: TASKS */}
       {activeTab === "tasks" && (
         <div className="space-y-6">
-          {/* Filters & Search Toolbar (Bonus Features) */}
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-800 dark:bg-gray-900">
+          {/* Filters & Search Toolbar */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
             <div className="flex flex-wrap items-center gap-3">
               {/* Status filter */}
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs focus:border-indigo-600 focus:outline-hidden"
               >
                 <option value="ALL">Status: All</option>
                 <option value="TODO">To Do</option>
@@ -589,7 +600,7 @@ export default function TeamDetailPage({
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs focus:border-indigo-600 focus:outline-hidden"
               >
                 <option value="ALL">Priority: All</option>
                 <option value="LOW">Low</option>
@@ -601,7 +612,7 @@ export default function TeamDetailPage({
               <select
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-2xs focus:border-indigo-600 focus:outline-hidden"
               >
                 <option value="ALL">Assignee: All</option>
                 <option value="UNASSIGNED">Unassigned</option>
@@ -614,15 +625,15 @@ export default function TeamDetailPage({
             </div>
 
             {/* Search Input */}
-            <div className="relative w-full lg:w-64">
+            <div className="relative w-full lg:w-72">
               <input
                 type="text"
                 placeholder="Search tasks..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 pl-8 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 pl-9 text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-600 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
               />
-              <span className="absolute left-2.5 top-2 text-gray-400">🔍</span>
+              <span className="absolute left-3 top-2.5 text-xs text-slate-400">🔍</span>
             </div>
           </div>
 
@@ -630,44 +641,62 @@ export default function TeamDetailPage({
           {viewMode === "kanban" ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { status: "TODO", title: "To Do", bg: "bg-amber-500/10", border: "border-amber-500/20", badge: "bg-amber-100 text-amber-800" },
-                { status: "IN_PROGRESS", title: "In Progress", bg: "bg-blue-500/10", border: "border-blue-500/20", badge: "bg-blue-100 text-blue-800" },
-                { status: "DONE", title: "Done", bg: "bg-emerald-500/10", border: "border-emerald-500/20", badge: "bg-emerald-100 text-emerald-800" },
+                {
+                  status: "TODO",
+                  title: "To Do",
+                  bg: "bg-slate-100/90",
+                  border: "border-slate-200/90",
+                  badge: "bg-white text-slate-700 border border-slate-200 shadow-2xs",
+                },
+                {
+                  status: "IN_PROGRESS",
+                  title: "In Progress",
+                  bg: "bg-blue-50/70",
+                  border: "border-blue-200/80",
+                  badge: "bg-blue-100 text-blue-800 border border-blue-200",
+                },
+                {
+                  status: "DONE",
+                  title: "Done",
+                  bg: "bg-emerald-50/70",
+                  border: "border-emerald-200/80",
+                  badge: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+                },
               ].map((col) => {
                 const columnTasks = filteredTasks.filter((t) => t.status === col.status);
                 return (
                   <div
                     key={col.status}
-                    className={`flex flex-col rounded-2xl border ${col.border} ${col.bg} p-4 min-h-[500px]`}
+                    className={`flex flex-col rounded-3xl border ${col.border} ${col.bg} p-4.5 min-h-[520px]`}
                   >
-                    <div className="flex items-center justify-between pb-3 border-b border-gray-200/50 dark:border-gray-800">
-                      <span className="text-sm font-bold text-gray-900 dark:text-white">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
+                      <span className="text-sm font-extrabold text-slate-900">
                         {col.title}
                       </span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${col.badge}`}>
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${col.badge}`}>
                         {columnTasks.length}
                       </span>
                     </div>
 
-                    <div className="mt-4 flex-1 space-y-3">
+                    <div className="mt-4 flex-1 space-y-3.5">
                       {columnTasks.length === 0 ? (
-                        <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-gray-300/50 text-xs text-gray-400">
+                        <div className="flex h-36 items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 text-xs font-semibold text-slate-400 bg-white/50">
                           No tasks in {col.title.toLowerCase()}
                         </div>
                       ) : (
                         columnTasks.map((task) => (
                           <div
                             key={task.id}
-                            className="rounded-xl border border-gray-200 bg-white p-4 shadow-xs hover:shadow-md transition dark:border-gray-800 dark:bg-gray-900"
+                            className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
                           >
                             <div className="flex items-start justify-between gap-2">
                               <span
-                                className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                                className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
                                   task.priority === "HIGH"
-                                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+                                    ? "bg-rose-50 text-rose-700 border border-rose-200/80"
                                     : task.priority === "MEDIUM"
-                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200/80"
+                                    : "bg-slate-100 text-slate-700 border border-slate-200"
                                 }`}
                               >
                                 {task.priority} Priority
@@ -677,7 +706,7 @@ export default function TeamDetailPage({
                                 <button
                                   type="button"
                                   onClick={() => setEditingTask(task)}
-                                  className="text-gray-400 hover:text-indigo-600 p-1 text-xs"
+                                  className="text-slate-400 hover:text-indigo-600 p-1 text-xs cursor-pointer"
                                   title="Edit Task"
                                 >
                                   ✏️
@@ -685,7 +714,7 @@ export default function TeamDetailPage({
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteTask(task)}
-                                  className="text-gray-400 hover:text-rose-600 p-1 text-xs"
+                                  className="text-slate-400 hover:text-rose-600 p-1 text-xs cursor-pointer"
                                   title="Delete Task"
                                 >
                                   🗑️
@@ -693,18 +722,18 @@ export default function TeamDetailPage({
                               </div>
                             </div>
 
-                            <h4 className="mt-2 text-sm font-bold text-gray-900 dark:text-white">
+                            <h4 className="mt-2.5 text-sm font-bold text-slate-900 leading-snug">
                               {task.title}
                             </h4>
 
                             {task.description && (
-                              <p className="mt-1 text-xs text-gray-500 line-clamp-2 dark:text-gray-400">
+                              <p className="mt-1.5 text-xs text-slate-600 line-clamp-2 leading-relaxed">
                                 {task.description}
                               </p>
                             )}
 
-                            <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3 text-[11px] text-gray-500 dark:border-gray-800">
-                              <span className="flex items-center gap-1">
+                            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500 font-medium">
+                              <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
                                 👤 {task.assignee ? task.assignee.name : "Unassigned"}
                               </span>
 
@@ -712,7 +741,7 @@ export default function TeamDetailPage({
                               <select
                                 value={task.status}
                                 onChange={(e) => handleQuickStatusChange(task.id, e.target.value)}
-                                className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 focus:outline-hidden cursor-pointer"
                               >
                                 <option value="TODO">To Do</option>
                                 <option value="IN_PROGRESS">In Progress</option>
@@ -729,44 +758,44 @@ export default function TeamDetailPage({
             </div>
           ) : (
             /* VIEW: TABLE / LIST */
-            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xs dark:border-gray-800 dark:bg-gray-900">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800 text-left text-xs">
-                <thead className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 font-semibold">
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xs">
+              <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+                <thead className="bg-slate-50 text-slate-700 font-bold tracking-wider uppercase">
                   <tr>
-                    <th className="px-6 py-3">Task Title</th>
-                    <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Priority</th>
-                    <th className="px-6 py-3">Assignee</th>
-                    <th className="px-6 py-3">Due Date</th>
-                    <th className="px-6 py-3 text-right">Actions</th>
+                    <th className="px-6 py-3.5">Task Title</th>
+                    <th className="px-6 py-3.5">Status</th>
+                    <th className="px-6 py-3.5">Priority</th>
+                    <th className="px-6 py-3.5">Assignee</th>
+                    <th className="px-6 py-3.5">Due Date</th>
+                    <th className="px-6 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                <tbody className="divide-y divide-slate-100">
                   {filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                      <td colSpan={6} className="px-6 py-10 text-center text-slate-400 font-medium">
                         No tasks match the filter.
                       </td>
                     </tr>
                   ) : (
                     filteredTasks.map((task) => (
-                      <tr key={task.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
-                        <td className="px-6 py-4 font-semibold text-gray-900 dark:text-white">
+                      <tr key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-6 py-4 font-bold text-slate-900">
                           <div>{task.title}</div>
                           {task.description && (
-                            <div className="text-[11px] text-gray-400 font-normal line-clamp-1">
+                            <div className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">
                               {task.description}
                             </div>
                           )}
                         </td>
                         <td className="px-6 py-4">
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
                               task.status === "DONE"
-                                ? "bg-emerald-50 text-emerald-700"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                 : task.status === "IN_PROGRESS"
-                                ? "bg-blue-50 text-blue-700"
-                                : "bg-amber-50 text-amber-700"
+                                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                : "bg-slate-100 text-slate-700 border border-slate-200"
                             }`}
                           >
                             {task.status}
@@ -774,35 +803,35 @@ export default function TeamDetailPage({
                         </td>
                         <td className="px-6 py-4">
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
                               task.priority === "HIGH"
-                                ? "bg-rose-50 text-rose-700"
+                                ? "bg-rose-50 text-rose-700 border border-rose-200"
                                 : task.priority === "MEDIUM"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-slate-100 text-slate-700"
+                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                : "bg-slate-100 text-slate-700 border border-slate-200"
                             }`}
                           >
                             {task.priority}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                        <td className="px-6 py-4 font-semibold text-slate-700">
                           {task.assignee ? task.assignee.name : "Unassigned"}
                         </td>
-                        <td className="px-6 py-4 text-gray-500">
+                        <td className="px-6 py-4 text-slate-500 font-medium">
                           {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No date"}
                         </td>
-                        <td className="px-6 py-4 text-right space-x-2">
+                        <td className="px-6 py-4 text-right space-x-3">
                           <button
                             type="button"
                             onClick={() => setEditingTask(task)}
-                            className="text-indigo-600 hover:text-indigo-800 font-semibold"
+                            className="text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
                           >
                             Edit
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteTask(task)}
-                            className="text-rose-600 hover:text-rose-800 font-semibold"
+                            className="text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                           >
                             Delete
                           </button>
@@ -822,10 +851,10 @@ export default function TeamDetailPage({
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              <h3 className="text-xl font-extrabold text-slate-900">
                 Team Roster ({team.members.length})
               </h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-500 font-medium">
                 Manage roles and collaboration permissions for this team
               </p>
             </div>
@@ -834,37 +863,37 @@ export default function TeamDetailPage({
               <button
                 type="button"
                 onClick={() => setIsAddMemberOpen(true)}
-                className="rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-500 transition"
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 transition cursor-pointer"
               >
                 + Add Member by Email
               </button>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {team.members.map((member) => {
               const isMemberOwner = member.role === "OWNER" || member.userId === team.ownerId;
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-800 dark:bg-gray-900"
+                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-violet-600 text-sm font-bold text-white uppercase">
+                  <div className="flex items-center gap-3.5">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-sm font-bold text-white uppercase shadow-2xs">
                       {member.user.name.charAt(0)}
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-gray-900 dark:text-white">
+                      <h4 className="text-sm font-bold text-slate-900">
                         {member.user.name}
                       </h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-xs text-slate-500 font-medium">
                         {member.user.email}
                       </p>
                       <span
-                        className={`inline-block mt-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        className={`inline-block mt-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
                           isMemberOwner
-                            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
-                            : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                            ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
+                            : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
                         }`}
                       >
                         {isMemberOwner ? "👑 Owner" : "👤 Member"}
@@ -876,7 +905,7 @@ export default function TeamDetailPage({
                     <button
                       type="button"
                       onClick={() => handleRemoveMember(member.userId, member.user.name)}
-                      className="rounded-lg p-1.5 text-xs font-semibold text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                      className="rounded-lg p-1.5 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
                       title="Remove member"
                     >
                       Remove
@@ -891,48 +920,48 @@ export default function TeamDetailPage({
 
       {/* MODAL: CREATE TASK */}
       {isCreateTaskOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Create Task in {team.name}</h3>
-              <button onClick={() => setIsCreateTaskOpen(false)} className="text-gray-400">✕</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-7 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-bold text-slate-900">Create Task in {team.name}</h3>
+              <button onClick={() => setIsCreateTaskOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleCreateTask} className="mt-4 space-y-4">
+            <form onSubmit={handleCreateTask} className="mt-5 space-y-4">
               {taskError && (
-                <div className="rounded-lg bg-red-50 p-3 text-xs text-red-600">{taskError}</div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{taskError}</div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Title *</label>
+                <label className="block text-xs font-bold text-slate-700">Title <span className="text-rose-500">*</span></label>
                 <input
                   type="text"
                   required
-                  placeholder="Task title..."
+                  placeholder="e.g. Implement user authentication..."
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Description</label>
+                <label className="block text-xs font-bold text-slate-700">Description</label>
                 <textarea
                   rows={2}
-                  placeholder="Details..."
+                  placeholder="Task details and context..."
                   value={taskDesc}
                   onChange={(e) => setTaskDesc(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-xs font-bold text-slate-700">Status</label>
                   <select
                     value={taskStatus}
                     onChange={(e) => setTaskStatus(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="TODO">To Do</option>
                     <option value="IN_PROGRESS">In Progress</option>
@@ -940,11 +969,11 @@ export default function TeamDetailPage({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Priority</label>
+                  <label className="block text-xs font-bold text-slate-700">Priority</label>
                   <select
                     value={taskPriority}
                     onChange={(e) => setTaskPriority(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="LOW">Low</option>
                     <option value="MEDIUM">Medium</option>
@@ -955,11 +984,11 @@ export default function TeamDetailPage({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Assignee</label>
+                  <label className="block text-xs font-bold text-slate-700">Assignee</label>
                   <select
                     value={taskAssigneeId}
                     onChange={(e) => setTaskAssigneeId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="">Unassigned</option>
                     {team.members.map((m) => (
@@ -970,28 +999,28 @@ export default function TeamDetailPage({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Due Date</label>
+                  <label className="block text-xs font-bold text-slate-700">Due Date</label>
                   <input
                     type="date"
                     value={taskDueDate}
                     onChange={(e) => setTaskDueDate(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   />
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsCreateTaskOpen(false)}
-                  className="rounded-lg border px-4 py-2 text-xs font-medium"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={taskLoading}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs"
+                  className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
                 >
                   {taskLoading ? "Creating..." : "Create Task"}
                 </button>
@@ -1003,42 +1032,42 @@ export default function TeamDetailPage({
 
       {/* MODAL: EDIT TASK */}
       {editingTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Edit Task</h3>
-              <button onClick={() => setEditingTask(null)} className="text-gray-400">✕</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-7 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-bold text-slate-900">Edit Task</h3>
+              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleUpdateTask} className="mt-4 space-y-4">
+            <form onSubmit={handleUpdateTask} className="mt-5 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Title *</label>
+                <label className="block text-xs font-bold text-slate-700">Title <span className="text-rose-500">*</span></label>
                 <input
                   type="text"
                   required
                   value={editingTask.title}
                   onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Description</label>
+                <label className="block text-xs font-bold text-slate-700">Description</label>
                 <textarea
                   rows={2}
                   value={editingTask.description || ""}
                   onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-xs font-bold text-slate-700">Status</label>
                   <select
                     value={editingTask.status}
                     onChange={(e) => setEditingTask({ ...editingTask, status: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="TODO">To Do</option>
                     <option value="IN_PROGRESS">In Progress</option>
@@ -1046,11 +1075,11 @@ export default function TeamDetailPage({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Priority</label>
+                  <label className="block text-xs font-bold text-slate-700">Priority</label>
                   <select
                     value={editingTask.priority}
                     onChange={(e) => setEditingTask({ ...editingTask, priority: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="LOW">Low</option>
                     <option value="MEDIUM">Medium</option>
@@ -1061,11 +1090,11 @@ export default function TeamDetailPage({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Assignee</label>
+                  <label className="block text-xs font-bold text-slate-700">Assignee</label>
                   <select
                     value={editingTask.assigneeId || ""}
                     onChange={(e) => setEditingTask({ ...editingTask, assigneeId: e.target.value || null })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   >
                     <option value="">Unassigned</option>
                     {team.members.map((m) => (
@@ -1076,28 +1105,28 @@ export default function TeamDetailPage({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">Due Date</label>
+                  <label className="block text-xs font-bold text-slate-700">Due Date</label>
                   <input
                     type="date"
                     value={editingTask.dueDate ? new Date(editingTask.dueDate).toISOString().split("T")[0] : ""}
                     onChange={(e) => setEditingTask({ ...editingTask, dueDate: e.target.value || null })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                   />
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
-                  className="rounded-lg border px-4 py-2 text-xs font-medium"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={taskLoading}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs"
+                  className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
                 >
                   {taskLoading ? "Saving..." : "Save Changes"}
                 </button>
@@ -1109,64 +1138,64 @@ export default function TeamDetailPage({
 
       {/* MODAL: ADD MEMBER */}
       {isAddMemberOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add Member to {team.name}</h3>
-              <button onClick={() => setIsAddMemberOpen(false)} className="text-gray-400">✕</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-bold text-slate-900">Add Member to {team.name}</h3>
+              <button onClick={() => setIsAddMemberOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleAddMember} className="mt-4 space-y-4">
+            <form onSubmit={handleAddMember} className="mt-5 space-y-4">
               {memberError && (
-                <div className="rounded-lg bg-red-50 p-3 text-xs text-red-600">{memberError}</div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{memberError}</div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  User Email *
+                <label className="block text-xs font-bold text-slate-700">
+                  User Email <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="email"
                   required
-                  placeholder="colleague@example.com"
+                  placeholder="colleague@taskflow.com"
                   value={memberEmail}
                   onChange={(e) => {
                     setMemberEmail(e.target.value);
                     if (memberError) setMemberError(null);
                   }}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
-                <p className="mt-1 text-[11px] text-gray-400">
+                <p className="mt-1.5 text-[11px] text-slate-400 font-medium">
                   User must already have an account on TaskFlow.
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                <label className="block text-xs font-bold text-slate-700">
                   Role
                 </label>
                 <select
                   value={memberRole}
                   onChange={(e) => setMemberRole(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 >
                   <option value="MEMBER">Member (Can create, view, update tasks)</option>
                   <option value="OWNER">Co-Owner (Full admin rights)</option>
                 </select>
               </div>
 
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddMemberOpen(false)}
-                  className="rounded-lg border px-4 py-2 text-xs font-medium"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={memberLoading}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs"
+                  className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
                 >
                   {memberLoading ? "Adding..." : "Add to Team"}
                 </button>
@@ -1178,51 +1207,51 @@ export default function TeamDetailPage({
 
       {/* MODAL: EDIT TEAM */}
       {isEditTeamOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Edit Team Details</h3>
-              <button onClick={() => setIsEditTeamOpen(false)} className="text-gray-400">✕</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-bold text-slate-900">Edit Team Details</h3>
+              <button onClick={() => setIsEditTeamOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
             </div>
 
-            <form onSubmit={handleEditTeam} className="mt-4 space-y-4">
+            <form onSubmit={handleEditTeam} className="mt-5 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Team Name *
+                <label className="block text-xs font-bold text-slate-700">
+                  Team Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={editTeamName}
                   onChange={(e) => setEditTeamName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+                <label className="block text-xs font-bold text-slate-700">
                   Description
                 </label>
                 <textarea
                   rows={2}
                   value={editTeamDesc}
                   onChange={(e) => setEditTeamDesc(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 />
               </div>
 
-              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <div className="mt-6 flex justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsEditTeamOpen(false)}
-                  className="rounded-lg border px-4 py-2 text-xs font-medium"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={editTeamLoading}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs"
+                  className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
                 >
                   {editTeamLoading ? "Saving..." : "Save Changes"}
                 </button>
