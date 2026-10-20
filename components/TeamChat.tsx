@@ -54,7 +54,7 @@ export default function TeamChat({
   useEffect(() => {
     fetchMessages();
 
-    // 1. Subscribe to Supabase Realtime for instant chat delivery (< 200ms)
+    // Subscribe to Supabase Realtime for instant chat delivery (< 200ms)
     const channelName = `chat-team-${teamId}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = supabase
       .channel(channelName)
@@ -92,25 +92,7 @@ export default function TeamChat({
       )
       .subscribe();
 
-    // 2. Background polling fallback (every 3 seconds) for guaranteed cross-browser sync
-    const interval = setInterval(() => {
-      fetch(`/api/teams/${teamId}/messages`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data && Array.isArray(data)) {
-            setMessages((prev) => {
-              if (data.length !== prev.length || (data.length > 0 && prev.length > 0 && data[data.length - 1].id !== prev[prev.length - 1].id)) {
-                return data;
-              }
-              return prev;
-            });
-          }
-        })
-        .catch(() => {});
-    }, 3000);
-
     return () => {
-      clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, [teamId]);
