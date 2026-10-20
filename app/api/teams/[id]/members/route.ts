@@ -6,7 +6,7 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-// POST /api/teams/:id/members - Add a member to a team (Owner only)
+// POST /api/teams/:id/members - Add a member to a team (Owner or Admin)
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const user = await getSessionUser(request);
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Check team and verify current user is the OWNER
+    // Check team existence
     const team = await prisma.team.findUnique({
       where: { id },
     });
@@ -34,9 +34,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    if (team.ownerId !== user.id) {
+    // Check caller's role in the team (Owner or Admin allowed)
+    const callerMembership = await prisma.teamMember.findUnique({
+      where: {
+        teamId_userId: {
+          teamId: id,
+          userId: user.id,
+        },
+      },
+    });
+
+    const isOwner = team.ownerId === user.id || callerMembership?.role === "OWNER";
+    const isAdmin = callerMembership?.role === "ADMIN";
+
+    if (!isOwner && !isAdmin) {
       return NextResponse.json(
-        { error: "Forbidden. Only the team owner can add members." },
+        { error: "Forbidden. Only team owners and admins can add members." },
         { status: 403 }
       );
     }
@@ -71,16 +84,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    // Determine assigned role: Only Owner can assign "ADMIN" or "OWNER"
+    let assignedRole = "MEMBER";
+    if (role === "ADMIN" && isOwner) {
+      assignedRole = "ADMIN";
+    }
+
     const newMember = await prisma.teamMember.create({
       data: {
         teamId: id,
         userId: targetUser.id,
-        role: role === "OWNER" ? "OWNER" : "MEMBER",
+        role: assignedRole,
       },
       include: {
         user: {
           select: { id: true, name: true, email: true },
         },
+      },
+    });
+
+    // Send in-app notification to the newly added member
+    await prisma.notification.create({
+      data: {
+        userId: targetUser.id,
+        title: "Added to Team",
+        message: `You were added to team "${team.name}" by ${user.name}.`,
+        link: `/teams/${id}`,
       },
     });
 

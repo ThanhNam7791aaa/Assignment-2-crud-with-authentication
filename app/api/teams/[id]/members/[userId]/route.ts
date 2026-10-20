@@ -6,7 +6,69 @@ type RouteContext = {
   params: Promise<{ id: string; userId: string }>;
 };
 
-// DELETE /api/teams/:id/members/:userId - Remove a member from a team (Owner only)
+// PUT /api/teams/:id/members/:userId - Change member role (Owner only)
+export async function PUT(request: NextRequest, context: RouteContext) {
+  try {
+    const user = await getSessionUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: teamId, userId: targetUserId } = await context.params;
+    const body = await request.json();
+    const { role } = body;
+
+    if (!role || !["OWNER", "ADMIN", "MEMBER"].includes(role)) {
+      return NextResponse.json({ error: "Invalid role specified." }, { status: 400 });
+    }
+
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+    });
+
+    if (!team) {
+      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    }
+
+    // Only the primary team owner can change member roles
+    if (team.ownerId !== user.id) {
+      return NextResponse.json(
+        { error: "Forbidden. Only the team owner can change member roles." },
+        { status: 403 }
+      );
+    }
+
+    if (targetUserId === team.ownerId && role !== "OWNER") {
+      return NextResponse.json(
+        { error: "Cannot change the primary owner's role." },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.teamMember.update({
+      where: {
+        teamId_userId: {
+          teamId,
+          userId: targetUserId,
+        },
+      },
+      data: { role },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return NextResponse.json(updated, { status: 200 });
+  } catch (error) {
+    console.error("Error updating member role:", error);
+    return NextResponse.json(
+      { error: "Failed to update member role" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/teams/:id/members/:userId - Remove a member from a team (Owner or Admin)
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     const user = await getSessionUser(request);
@@ -24,13 +86,6 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    if (team.ownerId !== user.id) {
-      return NextResponse.json(
-        { error: "Forbidden. Only the team owner can remove members." },
-        { status: 403 }
-      );
-    }
-
     if (targetUserId === team.ownerId) {
       return NextResponse.json(
         { error: "Bad request. The team owner cannot be removed from the team." },
@@ -38,7 +93,26 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const membership = await prisma.teamMember.findUnique({
+    const callerMembership = await prisma.teamMember.findUnique({
+      where: {
+        teamId_userId: {
+          teamId,
+          userId: user.id,
+        },
+      },
+    });
+
+    const isOwner = team.ownerId === user.id || callerMembership?.role === "OWNER";
+    const isAdmin = callerMembership?.role === "ADMIN";
+
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json(
+        { error: "Forbidden. Only team owners and admins can remove members." },
+        { status: 403 }
+      );
+    }
+
+    const targetMembership = await prisma.teamMember.findUnique({
       where: {
         teamId_userId: {
           teamId,
@@ -47,10 +121,18 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       },
     });
 
-    if (!membership) {
+    if (!targetMembership) {
       return NextResponse.json(
         { error: "User is not a member of this team." },
         { status: 404 }
+      );
+    }
+
+    // Admins can only remove regular MEMBERS, not other Admins or Owners
+    if (isAdmin && !isOwner && targetMembership.role !== "MEMBER") {
+      return NextResponse.json(
+        { error: "Forbidden. Admins can only remove regular members." },
+        { status: 403 }
       );
     }
 

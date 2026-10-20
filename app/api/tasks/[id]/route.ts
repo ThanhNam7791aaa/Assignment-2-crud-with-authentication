@@ -27,7 +27,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Task not found." }, { status: 404 });
     }
 
-    // If task belongs to a team, verify current user is a member of that team
+    // Check membership & permissions if task belongs to a team
     if (existingTask.teamId) {
       const membership = await prisma.teamMember.findUnique({
         where: {
@@ -40,31 +40,26 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
       if (!membership) {
         return NextResponse.json(
-          { error: "Forbidden. You are not a member of this task's team." },
+          { error: "Forbidden. You are not a member of this team." },
           { status: 403 }
         );
       }
 
-      // If updating assignee, verify new assignee belongs to team
-      if (assigneeId) {
-        const assigneeMember = await prisma.teamMember.findUnique({
-          where: {
-            teamId_userId: {
-              teamId: existingTask.teamId,
-              userId: assigneeId,
-            },
-          },
-        });
+      // Member can only edit their own created/assigned task or update status
+      const isOwnerOrAdmin = membership.role === "OWNER" || membership.role === "ADMIN";
+      const isCreatorOrAssignee =
+        existingTask.creatorId === user.id || existingTask.assigneeId === user.id;
 
-        if (!assigneeMember) {
-          return NextResponse.json(
-            { error: "Assignee must be a member of this team." },
-            { status: 400 }
-          );
-        }
+      // If user is a regular member and trying to change title/description/assignee of another person's task
+      if (!isOwnerOrAdmin && !isCreatorOrAssignee && (title !== undefined || description !== undefined || assigneeId !== undefined)) {
+        return NextResponse.json(
+          { error: "Forbidden. Members can only manage their own tasks or update status." },
+          { status: 403 }
+        );
       }
     }
 
+    // Validate title if present
     if (title !== undefined && (typeof title !== "string" || title.trim() === "")) {
       return NextResponse.json(
         { error: "Task title cannot be empty." },
@@ -88,6 +83,22 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       },
     });
 
+    // Send notification if a new assignee was set
+    if (
+      assigneeId &&
+      assigneeId !== existingTask.assigneeId &&
+      assigneeId !== user.id
+    ) {
+      await prisma.notification.create({
+        data: {
+          userId: assigneeId,
+          title: "Task Assigned",
+          message: `You were assigned task "${updatedTask.title}" by ${user.name}.`,
+          link: existingTask.teamId ? `/teams/${existingTask.teamId}` : "/teams",
+        },
+      });
+    }
+
     return NextResponse.json(updatedTask, { status: 200 });
   } catch (error) {
     console.error("Error updating task:", error);
@@ -99,7 +110,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 }
 
 // DELETE /api/tasks/[id] - Delete a task
-// Rule: Only the task creator, the assignee, or the team Owner can delete a task.
+// Rule: Creator, Assignee, Team Admin, or Team Owner can delete a task.
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     const user = await getSessionUser(request);
@@ -120,20 +131,26 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Task not found." }, { status: 404 });
     }
 
-    // Check authorization:
-    // User must be:
-    // 1. Task creator (creatorId === user.id)
-    // 2. Task assignee (assigneeId === user.id)
-    // 3. Team Owner (team?.ownerId === user.id)
+    let isTeamAdmin = false;
+    let isTeamOwner = existingTask.team?.ownerId === user.id;
+
+    if (existingTask.teamId) {
+      const membership = await prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId: existingTask.teamId, userId: user.id } },
+      });
+      if (membership?.role === "ADMIN" || membership?.role === "OWNER") {
+        isTeamAdmin = true;
+      }
+    }
+
     const isCreator = existingTask.creatorId === user.id;
     const isAssignee = existingTask.assigneeId === user.id;
-    const isTeamOwner = existingTask.team?.ownerId === user.id;
 
-    if (!isCreator && !isAssignee && !isTeamOwner) {
+    if (!isCreator && !isAssignee && !isTeamOwner && !isTeamAdmin) {
       return NextResponse.json(
         {
           error:
-            "Forbidden. Only the task creator, the assignee, or the team Owner can delete this task.",
+            "Forbidden. Only the task creator, assignee, team Admin, or team Owner can delete this task.",
         },
         { status: 403 }
       );

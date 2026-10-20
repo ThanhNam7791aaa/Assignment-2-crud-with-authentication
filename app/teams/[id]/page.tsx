@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
+import TeamChat from "@/components/TeamChat";
 
 interface TeamMemberItem {
   id: string;
@@ -54,13 +56,13 @@ export default function TeamDetailPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Tabs: "tasks" | "members"
-  const [activeTab, setActiveTab] = useState<"tasks" | "members">("tasks");
+  // Tabs: "tasks" | "members" | "chat"
+  const [activeTab, setActiveTab] = useState<"tasks" | "members" | "chat">("tasks");
 
   // View mode: "kanban" | "table"
   const [viewMode, setViewMode] = useState<"kanban" | "table">("kanban");
 
-  // Filters (Bonus mark)
+  // Filters
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [assigneeFilter, setAssigneeFilter] = useState("ALL");
@@ -130,6 +132,51 @@ export default function TeamDetailPage({
       }
     }
   }, [user, authLoading, id]);
+
+  // Live Task Board Updates via Supabase Realtime + Periodic Refresh Fallback
+  useEffect(() => {
+    if (!id) return;
+
+    // 1. Supabase Realtime channel
+    const channelName = `team-live-tasks-${id}-${Math.random().toString(36).slice(2, 7)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `teamId=eq.${id}`,
+        },
+        () => {
+          // Instant refresh team data when any member creates, updates, or deletes a task
+          fetchTeam();
+        }
+      )
+      .subscribe();
+
+    // 2. Periodic sync fallback (every 4 seconds)
+    const interval = setInterval(() => {
+      fetch(`/api/teams/${id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.team) {
+            setTeam(data.team);
+            setIsOwner(data.isOwner);
+            setCurrentUserRole(data.currentUserRole);
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [id]);
+
+  const isAdminOrOwner = isOwner || currentUserRole === "ADMIN";
 
   // Handle Create Task
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -242,15 +289,15 @@ export default function TeamDetailPage({
     }
   };
 
-  // Handle Delete Task
+  // Handle Delete Task (Owner, Admin, Creator, or Assignee)
   const handleDeleteTask = async (task: TeamTaskItem) => {
     const canDelete =
+      isAdminOrOwner ||
       task.creatorId === user?.id ||
-      task.assigneeId === user?.id ||
-      team?.ownerId === user?.id;
+      task.assigneeId === user?.id;
 
     if (!canDelete) {
-      alert("Permission denied. Only the task creator, assignee, or team owner can delete this task.");
+      alert("Permission denied. Only the task creator, assignee, team Admin, or Owner can delete this task.");
       return;
     }
 
@@ -316,7 +363,34 @@ export default function TeamDetailPage({
     }
   };
 
-  // Handle Remove Member
+  // Handle Change Member Role (Owner only)
+  const handleRoleChange = async (memberUserId: string, newRole: string) => {
+    try {
+      const res = await fetch(`/api/teams/${id}/members/${memberUserId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to change member role");
+      }
+      setTeam((prev) =>
+        prev
+          ? {
+              ...prev,
+              members: prev.members.map((m) =>
+                m.userId === memberUserId ? { ...m, role: newRole } : m
+              ),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      alert(err.message || "Failed to change member role");
+    }
+  };
+
+  // Handle Remove Member (Owner can remove anyone; Admin can remove Member)
   const handleRemoveMember = async (memberUserId: string, memberName: string) => {
     if (!confirm(`Are you sure you want to remove ${memberName} from this team?`)) return;
 
@@ -375,7 +449,7 @@ export default function TeamDetailPage({
     }
   };
 
-  // Handle Delete Team
+  // Handle Delete Team (Owner only)
   const handleDeleteTeam = async () => {
     if (
       !confirm(
@@ -466,10 +540,12 @@ export default function TeamDetailPage({
               className={`rounded-full px-3 py-1 text-xs font-bold ${
                 isOwner
                   ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
+                  : currentUserRole === "ADMIN"
+                  ? "bg-purple-50 text-purple-700 border border-purple-200/80"
                   : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
               }`}
             >
-              {isOwner ? "👑 Owner" : `👤 ${currentUserRole}`}
+              {isOwner ? "👑 Owner" : currentUserRole === "ADMIN" ? "🛡️ Admin" : "👤 Member"}
             </span>
           </div>
 
@@ -521,7 +597,7 @@ export default function TeamDetailPage({
         </div>
       </div>
 
-      {/* Tabs navigation: Tasks vs Members */}
+      {/* Tabs navigation: Tasks vs Members vs Chat */}
       <div className="flex items-center justify-between border-b border-slate-200 pt-2">
         <div className="flex items-center space-x-6">
           <button
@@ -545,6 +621,17 @@ export default function TeamDetailPage({
             }`}
           >
             Team Members ({team.members.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("chat")}
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
+              activeTab === "chat"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            💬 Chat Room
           </button>
         </div>
 
@@ -684,72 +771,81 @@ export default function TeamDetailPage({
                           No tasks in {col.title.toLowerCase()}
                         </div>
                       ) : (
-                        columnTasks.map((task) => (
-                          <div
-                            key={task.id}
-                            className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <span
-                                className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                                  task.priority === "HIGH"
-                                    ? "bg-rose-50 text-rose-700 border border-rose-200/80"
-                                    : task.priority === "MEDIUM"
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200/80"
-                                    : "bg-slate-100 text-slate-700 border border-slate-200"
-                                }`}
-                              >
-                                {task.priority} Priority
-                              </span>
+                        columnTasks.map((task) => {
+                          const canDeleteThisTask =
+                            isAdminOrOwner ||
+                            task.creatorId === user?.id ||
+                            task.assigneeId === user?.id;
 
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingTask(task)}
-                                  className="text-slate-400 hover:text-indigo-600 p-1 text-xs cursor-pointer"
-                                  title="Edit Task"
+                          return (
+                            <div
+                              key={task.id}
+                              className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                                    task.priority === "HIGH"
+                                      ? "bg-rose-50 text-rose-700 border border-rose-200/80"
+                                      : task.priority === "MEDIUM"
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200/80"
+                                      : "bg-slate-100 text-slate-700 border border-slate-200"
+                                  }`}
                                 >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteTask(task)}
-                                  className="text-slate-400 hover:text-rose-600 p-1 text-xs cursor-pointer"
-                                  title="Delete Task"
+                                  {task.priority} Priority
+                                </span>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingTask(task)}
+                                    className="text-slate-400 hover:text-indigo-600 p-1 text-xs cursor-pointer"
+                                    title="Edit Task"
+                                  >
+                                    ✏️
+                                  </button>
+                                  {canDeleteThisTask && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteTask(task)}
+                                      className="text-slate-400 hover:text-rose-600 p-1 text-xs cursor-pointer"
+                                      title="Delete Task"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <h4 className="mt-2.5 text-sm font-bold text-slate-900 leading-snug">
+                                {task.title}
+                              </h4>
+
+                              {task.description && (
+                                <p className="mt-1.5 text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                                  {task.description}
+                                </p>
+                              )}
+
+                              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500 font-medium">
+                                <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
+                                  👤 {task.assignee ? task.assignee.name : "Unassigned"}
+                                </span>
+
+                                {/* Quick Move Status Dropdown */}
+                                <select
+                                  value={task.status}
+                                  onChange={(e) => handleQuickStatusChange(task.id, e.target.value)}
+                                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 focus:outline-hidden cursor-pointer"
                                 >
-                                  🗑️
-                                </button>
+                                  <option value="TODO">To Do</option>
+                                  <option value="IN_PROGRESS">In Progress</option>
+                                  <option value="DONE">Done</option>
+                                </select>
                               </div>
                             </div>
-
-                            <h4 className="mt-2.5 text-sm font-bold text-slate-900 leading-snug">
-                              {task.title}
-                            </h4>
-
-                            {task.description && (
-                              <p className="mt-1.5 text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                                {task.description}
-                              </p>
-                            )}
-
-                            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500 font-medium">
-                              <span className="flex items-center gap-1.5 text-slate-700 font-semibold">
-                                👤 {task.assignee ? task.assignee.name : "Unassigned"}
-                              </span>
-
-                              {/* Quick Move Status Dropdown */}
-                              <select
-                                value={task.status}
-                                onChange={(e) => handleQuickStatusChange(task.id, e.target.value)}
-                                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-700 focus:outline-hidden cursor-pointer"
-                              >
-                                <option value="TODO">To Do</option>
-                                <option value="IN_PROGRESS">In Progress</option>
-                                <option value="DONE">Done</option>
-                              </select>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -778,66 +874,75 @@ export default function TeamDetailPage({
                       </td>
                     </tr>
                   ) : (
-                    filteredTasks.map((task) => (
-                      <tr key={task.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-900">
-                          <div>{task.title}</div>
-                          {task.description && (
-                            <div className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">
-                              {task.description}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                              task.status === "DONE"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : task.status === "IN_PROGRESS"
-                                ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                : "bg-slate-100 text-slate-700 border border-slate-200"
-                            }`}
-                          >
-                            {task.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                              task.priority === "HIGH"
-                                ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                : task.priority === "MEDIUM"
-                                ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-slate-100 text-slate-700 border border-slate-200"
-                            }`}
-                          >
-                            {task.priority}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">
-                          {task.assignee ? task.assignee.name : "Unassigned"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 font-medium">
-                          {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No date"}
-                        </td>
-                        <td className="px-6 py-4 text-right space-x-3">
-                          <button
-                            type="button"
-                            onClick={() => setEditingTask(task)}
-                            className="text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTask(task)}
-                            className="text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    filteredTasks.map((task) => {
+                      const canDeleteThisTask =
+                        isAdminOrOwner ||
+                        task.creatorId === user?.id ||
+                        task.assigneeId === user?.id;
+
+                      return (
+                        <tr key={task.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-900">
+                            <div>{task.title}</div>
+                            {task.description && (
+                              <div className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">
+                                {task.description}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                                task.status === "DONE"
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : task.status === "IN_PROGRESS"
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                  : "bg-slate-100 text-slate-700 border border-slate-200"
+                              }`}
+                            >
+                              {task.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                                task.priority === "HIGH"
+                                  ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                  : task.priority === "MEDIUM"
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                  : "bg-slate-100 text-slate-700 border border-slate-200"
+                              }`}
+                            >
+                              {task.priority}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 font-semibold text-slate-700">
+                            {task.assignee ? task.assignee.name : "Unassigned"}
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 font-medium">
+                            {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No date"}
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-3">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTask(task)}
+                              className="text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                            >
+                              Edit
+                            </button>
+                            {canDeleteThisTask && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTask(task)}
+                                className="text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -859,7 +964,7 @@ export default function TeamDetailPage({
               </p>
             </div>
 
-            {isOwner && (
+            {isAdminOrOwner && (
               <button
                 type="button"
                 onClick={() => setIsAddMemberOpen(true)}
@@ -873,10 +978,19 @@ export default function TeamDetailPage({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {team.members.map((member) => {
               const isMemberOwner = member.role === "OWNER" || member.userId === team.ownerId;
+              const isMemberAdmin = member.role === "ADMIN";
+
+              // Can current user remove this member?
+              // Owner can remove anyone (except owner)
+              // Admin can remove regular members
+              const canRemove =
+                (isOwner && !isMemberOwner) ||
+                (currentUserRole === "ADMIN" && !isMemberOwner && !isMemberAdmin);
+
               return (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all"
+                  className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:shadow-md hover:border-indigo-200 transition-all gap-4"
                 >
                   <div className="flex items-center gap-3.5">
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-sm font-bold text-white uppercase shadow-2xs">
@@ -893,29 +1007,55 @@ export default function TeamDetailPage({
                         className={`inline-block mt-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
                           isMemberOwner
                             ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
+                            : isMemberAdmin
+                            ? "bg-purple-50 text-purple-700 border border-purple-200/80"
                             : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
                         }`}
                       >
-                        {isMemberOwner ? "👑 Owner" : "👤 Member"}
+                        {isMemberOwner ? "👑 Owner" : isMemberAdmin ? "🛡️ Admin" : "👤 Member"}
                       </span>
                     </div>
                   </div>
 
-                  {isOwner && !isMemberOwner && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMember(member.userId, member.user.name)}
-                      className="rounded-lg p-1.5 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                      title="Remove member"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  {/* Role Switcher (Owner only) or Remove Member */}
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
+                    {isOwner && !isMemberOwner ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-400 font-semibold">Role:</span>
+                        <select
+                          value={member.role}
+                          onChange={(e) => handleRoleChange(member.userId, e.target.value)}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-bold text-slate-700 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value="MEMBER">Member</option>
+                          <option value="ADMIN">Admin</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <span />
+                    )}
+
+                    {canRemove && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMember(member.userId, member.user.name)}
+                        className="rounded-lg px-2.5 py-1 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Remove member"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
+      )}
+
+      {/* TAB 3: CHAT ROOM */}
+      {activeTab === "chat" && (
+        <TeamChat teamId={team.id} teamName={team.name} />
       )}
 
       {/* MODAL: CREATE TASK */}
@@ -1180,7 +1320,7 @@ export default function TeamDetailPage({
                   className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 shadow-2xs"
                 >
                   <option value="MEMBER">Member (Can create, view, update tasks)</option>
-                  <option value="OWNER">Co-Owner (Full admin rights)</option>
+                  <option value="ADMIN">Admin (Can manage members and tasks)</option>
                 </select>
               </div>
 

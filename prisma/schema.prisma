@@ -9,15 +9,17 @@ datasource db {
 }
 
 model User {
-  id            String       @id @default(uuid())
+  id            String         @id @default(uuid())
   name          String
-  email         String       @unique
+  email         String         @unique
   password      String
-  createdAt     DateTime     @default(now())
-  assignedTasks Task[]       @relation("TaskAssignee")
-  createdTasks  Task[]       @relation("TaskCreator")
+  createdAt     DateTime       @default(now())
+  assignedTasks Task[]         @relation("TaskAssignee")
+  createdTasks  Task[]         @relation("TaskCreator")
   memberships   TeamMember[]
-  ownedTeams    Team[]       @relation("TeamOwner")
+  ownedTeams    Team[]         @relation("TeamOwner")
+  messages      Message[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -30,6 +32,7 @@ model Team {
   createdAt   DateTime     @default(now())
   tasks       Task[]
   members     TeamMember[]
+  messages    Message[]
   owner       User         @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@map("teams")
@@ -39,7 +42,7 @@ model TeamMember {
   id       String   @id @default(uuid())
   teamId   String
   userId   String
-  role     String   @default("MEMBER")
+  role     String   @default("MEMBER") // "OWNER" | "ADMIN" | "MEMBER"
   joinedAt DateTime @default(now())
   team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -52,8 +55,8 @@ model Task {
   id          String    @id @default(uuid())
   title       String
   description String?
-  status      String    @default("TODO")
-  priority    String    @default("MEDIUM")
+  status      String    @default("TODO") // "TODO" | "IN_PROGRESS" | "DONE"
+  priority    String    @default("MEDIUM") // "LOW" | "MEDIUM" | "HIGH" | "URGENT"
   dueDate     DateTime?
   teamId      String?
   assigneeId  String?
@@ -64,4 +67,31 @@ model Task {
   team        Team?     @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@map("tasks")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  content   String
+  teamId    String
+  senderId  String
+  createdAt DateTime @default(now())
+
+  team   Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
 }

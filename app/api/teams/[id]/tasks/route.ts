@@ -6,7 +6,7 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-// GET /api/teams/:id/tasks - List tasks for a team
+// GET /api/teams/:id/tasks - List tasks for a team with optional query filters
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const user = await getSessionUser(request);
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   } catch (error) {
     console.error("Error fetching team tasks:", error);
     return NextResponse.json(
-      { error: "Failed to fetch team tasks" },
+      { error: "Failed to fetch tasks" },
       { status: 500 }
     );
   }
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const { id: teamId } = await context.params;
 
-    // Verify current user is a team member
+    // Check membership and fetch team details
     const membership = await prisma.teamMember.findUnique({
       where: {
         teamId_userId: {
@@ -84,17 +84,27 @@ export async function POST(request: NextRequest, context: RouteContext) {
           userId: user.id,
         },
       },
+      include: {
+        team: true,
+      },
     });
 
     if (!membership) {
       return NextResponse.json(
-        { error: "Access denied. You must be a member of this team to create tasks." },
+        { error: "Access denied. You are not a member of this team." },
         { status: 403 }
       );
     }
 
     const body = await request.json();
-    const { title, description, status = "TODO", priority = "MEDIUM", dueDate, assigneeId } = body;
+    const {
+      title,
+      description,
+      status = "TODO",
+      priority = "MEDIUM",
+      dueDate,
+      assigneeId,
+    } = body;
 
     if (!title || typeof title !== "string" || title.trim() === "") {
       return NextResponse.json(
@@ -103,9 +113,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // If assigneeId is provided, verify assignee is also a member of this team
+    // Verify assignee is a member of the team if provided
     if (assigneeId) {
-      const assigneeMember = await prisma.teamMember.findUnique({
+      const assigneeMembership = await prisma.teamMember.findUnique({
         where: {
           teamId_userId: {
             teamId,
@@ -114,7 +124,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         },
       });
 
-      if (!assigneeMember) {
+      if (!assigneeMembership) {
         return NextResponse.json(
           { error: "Assignee must be a member of this team." },
           { status: 400 }
@@ -142,6 +152,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
         },
       },
     });
+
+    // Notify assigned user if different from creator
+    if (assigneeId && assigneeId !== user.id) {
+      await prisma.notification.create({
+        data: {
+          userId: assigneeId,
+          title: "New Task Assigned",
+          message: `You were assigned task "${newTask.title}" in team "${membership.team.name}" by ${user.name}.`,
+          link: `/teams/${teamId}`,
+        },
+      });
+    }
 
     return NextResponse.json(newTask, { status: 201 });
   } catch (error) {

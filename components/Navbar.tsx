@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import NotificationBell from "@/components/NotificationBell";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -65,12 +66,14 @@ export default function Navbar() {
           })}
         </nav>
 
-        {/* Right side: Auth State */}
+        {/* Right side: Auth State & Notifications */}
         <div className="hidden md:flex items-center gap-3">
           {loading ? (
             <div className="h-9 w-28 bg-slate-200 animate-pulse rounded-xl" />
           ) : user ? (
             <div className="flex items-center gap-3">
+              <NotificationBell />
+
               <div className="flex items-center gap-2.5 rounded-xl bg-slate-100/90 border border-slate-200/80 px-3 py-1.5 shadow-2xs">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-2xs uppercase">
                   {user.name.charAt(0)}
@@ -88,7 +91,7 @@ export default function Navbar() {
               <button
                 type="button"
                 onClick={logout}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition"
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition cursor-pointer"
               >
                 Logout
               </button>
@@ -111,8 +114,10 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile Hamburger Button */}
-        <div className="flex md:hidden">
+        {/* Mobile: Notification Bell & Hamburger Button */}
+        <div className="flex items-center gap-2 md:hidden">
+          {user && <NotificationBell />}
+
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -158,7 +163,7 @@ export default function Navbar() {
                     setMobileMenuOpen(false);
                     logout();
                   }}
-                  className="w-full text-center rounded-xl border border-rose-200 bg-rose-50 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100"
+                  className="w-full text-center rounded-xl border border-rose-200 bg-rose-50 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 cursor-pointer"
                 >
                   Logout
                 </button>
