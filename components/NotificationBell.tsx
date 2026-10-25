@@ -44,7 +44,7 @@ export default function NotificationBell() {
     if (!user) return;
     fetchNotifications();
 
-    // Subscribe to Supabase Realtime for instant notification delivery
+    // 1. Subscribe to Supabase Realtime for instant notification delivery
     const channelName = `notifications-user-${user.id}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = supabase
       .channel(channelName)
@@ -64,7 +64,21 @@ export default function NotificationBell() {
       )
       .subscribe();
 
+    // 2. Auto-sync fallback (every 3s) ensuring notifications update live without requiring F5
+    const syncInterval = setInterval(() => {
+      fetch("/api/notifications")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) {
+            setNotifications(data.notifications || []);
+            setUnreadCount(data.unreadCount || 0);
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+
     return () => {
+      clearInterval(syncInterval);
       supabase.removeChannel(channel);
     };
   }, [user]);

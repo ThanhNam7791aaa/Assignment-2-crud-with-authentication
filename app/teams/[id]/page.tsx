@@ -133,11 +133,11 @@ export default function TeamDetailPage({
     }
   }, [user, authLoading, id]);
 
-  // Live Task Board Updates via Supabase Realtime
+  // Live Task Board Updates via Supabase Realtime + Auto-sync fallback
   useEffect(() => {
     if (!id) return;
 
-    // Supabase Realtime channel
+    // 1. Supabase Realtime channel
     const channelName = `team-live-tasks-${id}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = supabase
       .channel(channelName)
@@ -156,7 +156,22 @@ export default function TeamDetailPage({
       )
       .subscribe();
 
+    // 2. Auto-sync fallback (every 3s) ensuring tasks sync across sessions without requiring F5
+    const syncInterval = setInterval(() => {
+      fetch(`/api/teams/${id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.team) {
+            setTeam(data.team);
+            setIsOwner(data.isOwner);
+            setCurrentUserRole(data.currentUserRole);
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+
     return () => {
+      clearInterval(syncInterval);
       supabase.removeChannel(channel);
     };
   }, [id]);
