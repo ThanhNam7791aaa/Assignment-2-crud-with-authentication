@@ -36,9 +36,9 @@ export default function TeamChat({
   };
 
   // Fetch initial message history
-  const fetchMessages = async () => {
+  const fetchMessages = async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const res = await fetch(`/api/teams/${teamId}/messages`);
       if (res.ok) {
         const data = await res.json();
@@ -47,12 +47,12 @@ export default function TeamChat({
     } catch (err) {
       console.error("Error loading chat messages:", err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMessages();
+    fetchMessages(true);
 
     // 1. Subscribe to Supabase Realtime for instant chat delivery (< 200ms)
     const channelName = `chat-team-${teamId}-${Math.random().toString(36).slice(2, 7)}`;
@@ -109,7 +109,7 @@ export default function TeamChat({
             });
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }, 2500);
 
     return () => {
@@ -197,11 +197,10 @@ export default function TeamChat({
               >
                 {/* Sender Avatar */}
                 <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white uppercase shadow-2xs ${
-                    isMe
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white uppercase shadow-2xs ${isMe
                       ? "bg-indigo-600"
                       : "bg-gradient-to-tr from-violet-600 to-indigo-500"
-                  }`}
+                    }`}
                 >
                   {msg.sender.name ? msg.sender.name.charAt(0) : "U"}
                 </div>
@@ -219,11 +218,10 @@ export default function TeamChat({
                   </div>
 
                   <div
-                    className={`rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-2xs ${
-                      isMe
+                    className={`rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-2xs ${isMe
                         ? "bg-indigo-600 text-white rounded-tr-none font-medium"
                         : "bg-white border border-slate-200 text-slate-800 rounded-tl-none font-medium"
-                    }`}
+                      }`}
                   >
                     {msg.content}
                   </div>

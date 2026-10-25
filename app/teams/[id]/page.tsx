@@ -95,9 +95,11 @@ export default function TeamDetailPage({
   const [editTeamDesc, setEditTeamDesc] = useState("");
   const [editTeamLoading, setEditTeamLoading] = useState(false);
 
-  const fetchTeam = async () => {
+  const fetchTeam = async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading && !team) {
+        setLoading(true);
+      }
       setError(null);
       const res = await fetch(`/api/teams/${id}`);
       if (res.status === 401) {
@@ -128,7 +130,7 @@ export default function TeamDetailPage({
       if (!user) {
         router.push("/login");
       } else {
-        fetchTeam();
+        fetchTeam(true);
       }
     }
   }, [user, authLoading, id]);
@@ -150,8 +152,8 @@ export default function TeamDetailPage({
           filter: `teamId=eq.${id}`,
         },
         () => {
-          // Instant refresh team data when any member creates, updates, or deletes a task
-          fetchTeam();
+          // Silent refresh team data when any member creates, updates, or deletes a task
+          fetchTeam(false);
         }
       )
       .subscribe();
@@ -167,7 +169,7 @@ export default function TeamDetailPage({
             setCurrentUserRole(data.currentUserRole);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }, 3000);
 
     return () => {
@@ -251,9 +253,9 @@ export default function TeamDetailPage({
       setTeam((prev) =>
         prev
           ? {
-              ...prev,
-              tasks: prev.tasks.map((t) => (t.id === data.id ? data : t)),
-            }
+            ...prev,
+            tasks: prev.tasks.map((t) => (t.id === data.id ? data : t)),
+          }
           : prev
       );
       setEditingTask(null);
@@ -270,11 +272,11 @@ export default function TeamDetailPage({
       setTeam((prev) =>
         prev
           ? {
-              ...prev,
-              tasks: prev.tasks.map((t) =>
-                t.id === taskId ? { ...t, status: newStatus } : t
-              ),
-            }
+            ...prev,
+            tasks: prev.tasks.map((t) =>
+              t.id === taskId ? { ...t, status: newStatus } : t
+            ),
+          }
           : prev
       );
 
@@ -349,9 +351,9 @@ export default function TeamDetailPage({
       setTeam((prev) =>
         prev
           ? {
-              ...prev,
-              members: [...prev.members, data],
-            }
+            ...prev,
+            members: [...prev.members, data],
+          }
           : prev
       );
       setMemberEmail("");
@@ -378,11 +380,11 @@ export default function TeamDetailPage({
       setTeam((prev) =>
         prev
           ? {
-              ...prev,
-              members: prev.members.map((m) =>
-                m.userId === memberUserId ? { ...m, role: newRole } : m
-              ),
-            }
+            ...prev,
+            members: prev.members.map((m) =>
+              m.userId === memberUserId ? { ...m, role: newRole } : m
+            ),
+          }
           : prev
       );
     } catch (err: any) {
@@ -406,12 +408,12 @@ export default function TeamDetailPage({
       setTeam((prev) =>
         prev
           ? {
-              ...prev,
-              members: prev.members.filter((m) => m.userId !== memberUserId),
-              tasks: prev.tasks.map((t) =>
-                t.assigneeId === memberUserId ? { ...t, assigneeId: null, assignee: null } : t
-              ),
-            }
+            ...prev,
+            members: prev.members.filter((m) => m.userId !== memberUserId),
+            tasks: prev.tasks.map((t) =>
+              t.assigneeId === memberUserId ? { ...t, assigneeId: null, assignee: null } : t
+            ),
+          }
           : prev
       );
     } catch (err: any) {
@@ -537,13 +539,12 @@ export default function TeamDetailPage({
               {team.name}
             </h1>
             <span
-              className={`rounded-full px-3 py-1 text-xs font-bold ${
-                isOwner
+              className={`rounded-full px-3 py-1 text-xs font-bold ${isOwner
                   ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
                   : currentUserRole === "ADMIN"
-                  ? "bg-purple-50 text-purple-700 border border-purple-200/80"
-                  : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
-              }`}
+                    ? "bg-purple-50 text-purple-700 border border-purple-200/80"
+                    : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
+                }`}
             >
               {isOwner ? "👑 Owner" : currentUserRole === "ADMIN" ? "🛡️ Admin" : "👤 Member"}
             </span>
@@ -603,33 +604,30 @@ export default function TeamDetailPage({
           <button
             type="button"
             onClick={() => setActiveTab("tasks")}
-            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
-              activeTab === "tasks"
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${activeTab === "tasks"
                 ? "border-indigo-600 text-indigo-600"
                 : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
+              }`}
           >
             Tasks ({team.tasks.length})
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("members")}
-            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
-              activeTab === "members"
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${activeTab === "members"
                 ? "border-indigo-600 text-indigo-600"
                 : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
+              }`}
           >
             Team Members ({team.members.length})
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("chat")}
-            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${
-              activeTab === "chat"
+            className={`pb-3 text-sm font-bold transition border-b-2 cursor-pointer ${activeTab === "chat"
                 ? "border-indigo-600 text-indigo-600"
                 : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
+              }`}
           >
             💬 Chat Room
           </button>
@@ -640,11 +638,10 @@ export default function TeamDetailPage({
             <button
               type="button"
               onClick={() => setViewMode("kanban")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
-                viewMode === "kanban"
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${viewMode === "kanban"
                   ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs"
                   : "text-slate-600 hover:bg-slate-100"
-              }`}
+                }`}
               title="Kanban Board View"
             >
               📊 Kanban Board
@@ -652,11 +649,10 @@ export default function TeamDetailPage({
             <button
               type="button"
               onClick={() => setViewMode("table")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
-                viewMode === "table"
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${viewMode === "table"
                   ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80 shadow-2xs"
                   : "text-slate-600 hover:bg-slate-100"
-              }`}
+                }`}
               title="Table / List View"
             >
               📄 List View
@@ -784,13 +780,12 @@ export default function TeamDetailPage({
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <span
-                                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                                    task.priority === "HIGH"
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${task.priority === "HIGH"
                                       ? "bg-rose-50 text-rose-700 border border-rose-200/80"
                                       : task.priority === "MEDIUM"
-                                      ? "bg-amber-50 text-amber-700 border border-amber-200/80"
-                                      : "bg-slate-100 text-slate-700 border border-slate-200"
-                                  }`}
+                                        ? "bg-amber-50 text-amber-700 border border-amber-200/80"
+                                        : "bg-slate-100 text-slate-700 border border-slate-200"
+                                    }`}
                                 >
                                   {task.priority} Priority
                                 </span>
@@ -892,26 +887,24 @@ export default function TeamDetailPage({
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                                task.status === "DONE"
+                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${task.status === "DONE"
                                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                   : task.status === "IN_PROGRESS"
-                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                  : "bg-slate-100 text-slate-700 border border-slate-200"
-                              }`}
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-slate-100 text-slate-700 border border-slate-200"
+                                }`}
                             >
                               {task.status}
                             </span>
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                                task.priority === "HIGH"
+                              className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${task.priority === "HIGH"
                                   ? "bg-rose-50 text-rose-700 border border-rose-200"
                                   : task.priority === "MEDIUM"
-                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                  : "bg-slate-100 text-slate-700 border border-slate-200"
-                              }`}
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-slate-100 text-slate-700 border border-slate-200"
+                                }`}
                             >
                               {task.priority}
                             </span>
@@ -1004,13 +997,12 @@ export default function TeamDetailPage({
                         {member.user.email}
                       </p>
                       <span
-                        className={`inline-block mt-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                          isMemberOwner
+                        className={`inline-block mt-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${isMemberOwner
                             ? "bg-indigo-50 text-indigo-700 border border-indigo-200/80"
                             : isMemberAdmin
-                            ? "bg-purple-50 text-purple-700 border border-purple-200/80"
-                            : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
-                        }`}
+                              ? "bg-purple-50 text-purple-700 border border-purple-200/80"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-200/80"
+                          }`}
                       >
                         {isMemberOwner ? "👑 Owner" : isMemberAdmin ? "🛡️ Admin" : "👤 Member"}
                       </span>
